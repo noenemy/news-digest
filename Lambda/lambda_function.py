@@ -1,4 +1,4 @@
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, element
 import requests
 import datetime as dt
 from pptx import Presentation
@@ -18,7 +18,6 @@ def get_whatsnew_url_list(year, month):
 
     return url_list
 
-
 def read_whatsnew_article(url):
 
     whatsnew_page = requests.get(url)
@@ -30,10 +29,15 @@ def read_whatsnew_article(url):
 
     content = []
     textboxes = soup.find_all("div", class_="aws-text-box")
-    #print(type(textboxes), textboxes)
+    # print(type(textboxes), textboxes)
     for textbox in textboxes:
-        text = textbox.find("p").text
-        content.append(text)
+
+        paragraph = textbox.find("p")
+        # HTML tag 단위로 분리해서 리스트로 구성한다.
+        for child in paragraph.children:
+            content.append(child)
+
+    # print(content)
 
     article = {
         "url": url,
@@ -44,6 +48,10 @@ def read_whatsnew_article(url):
 
     return article
 
+def get_aws_url(url):
+    if url[0] == "/":
+        url = "https://aws.amazon.com" + url
+    return url
 
 def get_article_sample():
     article = {
@@ -55,37 +63,60 @@ def get_article_sample():
 
     return article
 
-
-def make_ppt(article, file_path):
-    prs = Presentation()
-    title_slide_layout = prs.slide_layouts[1]
-    slide = prs.slides.add_slide(title_slide_layout)
-
+def make_slide(article, slide):
     title = slide.placeholders[0]
     title.text = article["title"]
 
     body = slide.placeholders[1]
     tf = body.text_frame
+    p = tf.add_paragraph()
 
-    for paragraph in article["content"]:
-        p = tf.add_paragraph()
-        p.text = paragraph
+    for item in article["content"]:
+
+        item_type = type(item)
+        print(item_type)
+        print(f"{item}")
+        print("-------")
+
+        if item.name == "a":
+            print("add hyperlink")
+            print("-------")
+            run = p.add_run()
+            run.text = item.text
+            run.hyperlink.address = get_aws_url(item["href"])
+        elif item.name == "br":
+            print("add line break")
+            print("-------")
+            p.add_line_break()
+            p.add_line_break()
+        elif item.name == "b":
+            run = p.add_run()
+            run.text = item.text
+            run.font.bold = True
+        else:
+            run = p.add_run()
+            run.text = item
+
+def make_ppt(url_list, file_path):
+    prs = Presentation()
+    title_slide_layout = prs.slide_layouts[1]
+
+    max = len(url_list)
+    if max > 5: # TODO : for testing only
+        max = 5
+    for index in range(0, max):
+        article = read_whatsnew_article(url_list[index])
+
+        slide = prs.slides.add_slide(title_slide_layout)
+        make_slide(article, slide)
 
     prs.save(file_path)
-
-def Hyperlink( run_object, source_slide, destination_slide ):
-    rId = source_slide.part.relate_to(destination_slide.part, RT.SLIDE)
-    rPr = run_object._r.get_or_add_rPr()
-    hlinkClick = rPr.add_hlinkClick(rId)
-    hlinkClick.set('action', 'ppaction://hlinksldjump')
 
 year = dt.datetime.now().year
 month = dt.datetime.now().month
 
 url_list = get_whatsnew_url_list(year, month)
-article = read_whatsnew_article(url_list[0])
 
 # article = get_article_sample()
-# print(article)
 
-make_ppt(article, "whatsnew_sample.pptx")
+make_ppt(url_list, "whatsnew_sample.pptx")
