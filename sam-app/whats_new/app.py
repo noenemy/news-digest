@@ -1,8 +1,9 @@
+import json
 from bs4 import BeautifulSoup, element
 import requests
 import datetime as dt
 from pptx import Presentation
-
+import boto3
 
 def get_whatsnew_url_list(year, month):
     url_list = []
@@ -110,13 +111,67 @@ def make_ppt(url_list, file_path):
         slide = prs.slides.add_slide(title_slide_layout)
         make_slide(article, slide)
 
-    prs.save(file_path)
+    tmp_file_path = f"/tmp/{file_path}"
+    prs.save(tmp_file_path)
 
-year = dt.datetime.now().year
-month = dt.datetime.now().month
+    s3_bucket_name = "soonki-shared-seoul" #TODO:
+    s3_client = boto3.client("s3")
+    s3_client.upload_file(tmp_file_path, s3_bucket_name, file_path)
 
-url_list = get_whatsnew_url_list(year, month)
+    presigned_url = s3_client.generate_presigned_url(
+        'get_object',
+        Params={
+            "Bucket": s3_bucket_name,
+            "Key": file_path
+        },
+        HttpMethod="GET"
+    )
+    print(presigned_url)
+    return presigned_url
 
-# article = get_article_sample()
+def lambda_handler(event, context):
+    """Sample pure Lambda function
 
-make_ppt(url_list, "whatsnew_sample.pptx")
+    Parameters
+    ----------
+    event: dict, required
+        API Gateway Lambda Proxy Input Format
+
+        Event doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html#api-gateway-simple-proxy-for-lambda-input-format
+
+    context: object, required
+        Lambda Context runtime methods and attributes
+
+        Context doc: https://docs.aws.amazon.com/lambda/latest/dg/python-context-object.html
+
+    Returns
+    ------
+    API Gateway Lambda Proxy Output Format: dict
+
+        Return doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
+    """
+
+    # try:
+    #     ip = requests.get("http://checkip.amazonaws.com/")
+    # except requests.RequestException as e:
+    #     # Send some context about this error to Lambda Logs
+    #     print(e)
+
+    #     raise e
+
+    year = dt.datetime.now().year
+    month = dt.datetime.now().month
+
+    url_list = get_whatsnew_url_list(year, month)
+
+    # article = get_article_sample()
+
+    download_url = make_ppt(url_list, "whatsnew_sample.pptx")    
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps({
+            "message": download_url,
+            # "location": ip.text.replace("\n", "")
+        }),
+    }
