@@ -1,9 +1,12 @@
 import json
 from bs4 import BeautifulSoup, element
 import requests
+import boto3
 import datetime as dt
 from pptx import Presentation
-import boto3
+from pptx.util import Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
 
 def get_whatsnew_url_list(year, month):
     url_list = []
@@ -24,7 +27,7 @@ def read_whatsnew_article(url):
     whatsnew_page = requests.get(url)
 
     soup = BeautifulSoup(whatsnew_page.text, "html.parser")
-    title = soup.select_one(selector="div h1 a").get_text()
+    title = soup.select_one(selector="div h1 a").get_text().strip()
     posted_date = soup.find(name="span", class_="date").get_text().strip()
     posted_date = dt.datetime.strptime(posted_date, "%b %d, %Y")
 
@@ -36,6 +39,8 @@ def read_whatsnew_article(url):
         paragraph = textbox.find("p")
         # HTML tag 단위로 분리해서 리스트로 구성한다.
         for child in paragraph.children:
+            print(child)
+            print("*****")
             content.append(child)
 
     # print(content)
@@ -65,11 +70,27 @@ def get_article_sample():
     return article
 
 def make_slide(article, slide):
-    title = slide.placeholders[0]
+    title_p = slide.placeholders[0]
+    title = title_p.text_frame.paragraphs[0]
     title.text = article["title"]
+    title.alignment = PP_ALIGN.LEFT
+
+    title.font.name = "Amazon Ember"
+    title.font.size = Pt(18)
+    title.font.bold = True
+    title.font.color.rgb = RGBColor(251, 116, 62)
 
     body = slide.placeholders[1]
     tf = body.text_frame
+
+    p = tf.paragraphs[0]
+    run = p.add_run()
+    run.text = "Posted On: " + article["posted_date"]
+    run.font.name = "Arial"
+    run.font.size = Pt(14)
+    run.font.color.rgb = RGBColor(67, 53, 32)
+    p = tf.add_paragraph()
+
     p = tf.add_paragraph()
 
     for item in article["content"]:
@@ -84,19 +105,37 @@ def make_slide(article, slide):
             print("-------")
             run = p.add_run()
             run.text = item.text
+            run.font.name = "Arial"
+            run.font.size = Pt(14)            
             run.hyperlink.address = get_aws_url(item["href"])
         elif item.name == "br":
             print("add line break")
             print("-------")
-            p.add_line_break()
-            p.add_line_break()
+            #p.add_line_break()
+            #p.add_line_break()
+            p = tf.add_paragraph()
+            run = p.add_run()
+            run.font.name = "Arial"
+            run.font.size = Pt(11) 
         elif item.name == "b":
             run = p.add_run()
             run.text = item.text
+            run.font.name = "Arial"
+            run.font.size = Pt(14)
             run.font.bold = True
         else:
             run = p.add_run()
             run.text = item
+            run.font.name = "Arial"
+            run.font.size = Pt(14)
+
+    p = tf.add_paragraph()
+    p = tf.add_paragraph()
+    run = p.add_run()
+    run.text = article["url"]
+    run.font.name = "Arial"
+    run.font.size = Pt(9)            
+    run.hyperlink.address = article["url"]  
 
 def make_ppt(url_list, file_path):
     prs = Presentation()
@@ -118,7 +157,7 @@ def make_ppt(url_list, file_path):
     s3_client = boto3.client("s3")
     s3_client.upload_file(tmp_file_path, s3_bucket_name, file_path)
 
-    presigned_url = s3_client.generate_presigned_url(
+    signed_url = s3_client.generate_presigned_url(
         'get_object',
         Params={
             "Bucket": s3_bucket_name,
@@ -126,8 +165,8 @@ def make_ppt(url_list, file_path):
         },
         HttpMethod="GET"
     )
-    print(presigned_url)
-    return presigned_url
+    print(signed_url)
+    return signed_url
 
 def lambda_handler(event, context):
     """Sample pure Lambda function
@@ -159,10 +198,14 @@ def lambda_handler(event, context):
 
     #     raise e
 
-    year = dt.datetime.now().year
-    month = dt.datetime.now().month
+    url_list = event['url_list']
+    print(url_list)
 
-    url_list = get_whatsnew_url_list(year, month)
+    if url_list is None:
+        print("url_list is empty. Getting recent url list...")
+        year = dt.datetime.now().year
+        month = dt.datetime.now().month
+        url_list = get_whatsnew_url_list(year, month)
 
     # article = get_article_sample()
 
